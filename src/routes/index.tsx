@@ -21,10 +21,15 @@ interface WebhookData {
   timestamp: number
 }
 
+interface State {
+  items: Record<string, WebhookData>
+  order: string[]
+}
+
 export const Route = createFileRoute('/')({ component: App })
 
 function App() {
-  const [items, setItems] = useState<WebhookData[]>([])
+  const [state, setState] = useState<State>({ items: {}, order: [] })
   const [isConnected, setIsConnected] = useState(false)
 
   // Fetch initial data and setup SSE
@@ -33,7 +38,10 @@ function App() {
       try {
         const res = await fetch(`${API_URL}/data`)
         const data: WebhookData[] = await res.json()
-        setItems(data)
+        setState({
+          items: Object.fromEntries(data.map((item) => [item.id, item])),
+          order: data.map((item) => item.id),
+        })
       } catch (error) {
         console.error(error)
       }
@@ -50,24 +58,31 @@ function App() {
       if (eventSource.readyState === EventSource.CLOSED) setIsConnected(false)
     }
 
-    // Handle new webhook data
+    // Handle new webhook data - O(1)
     eventSource.addEventListener('new_data', (e) => {
       const newItem: WebhookData = JSON.parse(e.data)
-      setItems((prev) => [...prev, newItem])
+      setState((prev) => ({
+        items: { ...prev.items, [newItem.id]: newItem },
+        order: [newItem.id, ...prev.order],
+      }))
     })
 
-    // Handle click updates
+    // Handle click updates - O(1)
     eventSource.addEventListener('click_update', (e) => {
       const { data: updatedItem } = JSON.parse(e.data)
-      setItems((prev) =>
-        prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
-      )
+      setState((prev) => ({
+        ...prev,
+        items: { ...prev.items, [updatedItem.id]: updatedItem },
+      }))
     })
 
     // Handle cleanup
     eventSource.addEventListener('cleanup', (e) => {
-      const { data } = JSON.parse(e.data)
-      setItems(data)
+      const { data }: { data: WebhookData[] } = JSON.parse(e.data)
+      setState({
+        items: Object.fromEntries(data.map((item) => [item.id, item])),
+        order: data.map((item) => item.id),
+      })
     })
 
     return () => eventSource.close()
@@ -107,9 +122,9 @@ function App() {
 
         <Table>
           <TableCaption>
-            {items.length === 0
+            {state.order.length === 0
               ? 'Waiting for webhooks...'
-              : `${items.length} webhook(s) received`}
+              : `${state.order.length} webhook(s) received`}
           </TableCaption>
           <TableHeader>
             <TableRow className="border-b-muted">
@@ -128,18 +143,21 @@ function App() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell className="text-md">{item.bot_name}</TableCell>
-                <TableCell>
-                  <Button onClick={() => handleClick(item)}>Open Link</Button>
-                </TableCell>
-                <TableCell className="text-md">{item.click_count}</TableCell>
-                <TableCell className="text-md">
-                  {formatTime(item.timestamp)}
-                </TableCell>
-              </TableRow>
-            ))}
+            {state.order.map((id) => {
+              const item = state.items[id]
+              return (
+                <TableRow key={id}>
+                  <TableCell className="text-md">{item.bot_name}</TableCell>
+                  <TableCell>
+                    <Button onClick={() => handleClick(item)}>Open Link</Button>
+                  </TableCell>
+                  <TableCell className="text-md">{item.click_count}</TableCell>
+                  <TableCell className="text-md">
+                    {formatTime(item.timestamp)}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>

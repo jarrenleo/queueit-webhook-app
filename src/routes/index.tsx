@@ -1,11 +1,148 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Button } from '@/components/ui/button'
 
-export const Route = createFileRoute("/")({ component: App });
+const API_URL = 'https://queueit-webhook-api-production.up.railway.app'
+
+interface WebhookData {
+  id: string
+  bot_name: string
+  link: string
+  click_count: number
+  timestamp: number
+}
+
+export const Route = createFileRoute('/')({ component: App })
 
 function App() {
+  const [items, setItems] = useState<WebhookData[]>([])
+  const [isConnected, setIsConnected] = useState(false)
+
+  // Fetch initial data and setup SSE
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch(`${API_URL}/data`)
+        const data: WebhookData[] = await res.json()
+        setItems(data)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+    fetchData()
+
+    // Setup SSE connection
+    const eventSource = new EventSource(`${API_URL}/sse`)
+
+    eventSource.onopen = () => setIsConnected(true)
+    eventSource.onerror = () => {
+      // Only show disconnected if connection is fully closed (not just reconnecting)
+      if (eventSource.readyState === EventSource.CLOSED) setIsConnected(false)
+    }
+
+    // Handle new webhook data
+    eventSource.addEventListener('new_data', (e) => {
+      const newItem: WebhookData = JSON.parse(e.data)
+      setItems((prev) => [...prev, newItem])
+    })
+
+    // Handle click updates
+    eventSource.addEventListener('click_update', (e) => {
+      const { data: updatedItem } = JSON.parse(e.data)
+      setItems((prev) =>
+        prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+      )
+    })
+
+    // Handle cleanup
+    eventSource.addEventListener('cleanup', (e) => {
+      const { data } = JSON.parse(e.data)
+      setItems(data)
+    })
+
+    return () => eventSource.close()
+  }, [])
+
+  // Handle row click - increment count and open link
+  async function handleClick(item: WebhookData) {
+    window.open(item.link, '_blank')
+    await fetch(`${API_URL}/click/${item.id}`, { method: 'POST' })
+  }
+
+  function formatTime(timestamp: number) {
+    return new Date(timestamp).toLocaleTimeString()
+  }
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center">
-      <div className="font-medium">Hello World</div>
+    <div className="min-h-screen flex flex-col items-center pt-8 bg-background">
+      <div className="w-full max-w-4xl">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-foreground">
+            Queue-it Webhooks
+          </h1>
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex size-2">
+              <span
+                className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isConnected ? 'bg-green-500 animate-ping' : 'bg-red-500'}`}
+              ></span>
+              <span
+                className={`relative inline-flex size-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
+              ></span>
+            </span>
+            <span className="text-muted-foreground">
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+        </div>
+
+        <Table>
+          <TableCaption>
+            {items.length === 0
+              ? 'Waiting for webhooks...'
+              : `${items.length} webhook(s) received`}
+          </TableCaption>
+          <TableHeader>
+            <TableRow className="border-b-muted">
+              <TableHead className="text-center text-md font-semibold">
+                Bot
+              </TableHead>
+              <TableHead className="text-center text-md font-semibold">
+                Link
+              </TableHead>
+              <TableHead className="text-center text-md font-semibold">
+                Clicks
+              </TableHead>
+              <TableHead className="text-center text-md font-semibold">
+                Timestamp
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell className="text-md">{item.bot_name}</TableCell>
+                <TableCell>
+                  <Button onClick={() => handleClick(item)}>Open Link</Button>
+                </TableCell>
+                <TableCell className="text-md">{item.click_count}</TableCell>
+                <TableCell className="text-md">
+                  {formatTime(item.timestamp)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
-  );
+  )
 }

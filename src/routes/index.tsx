@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import {
   Table,
+  TableCaption,
   TableBody,
   TableCell,
   TableHead,
@@ -106,9 +107,7 @@ function App() {
               Queue-it Webhooks
             </h1>
             <p className="text-sm text-muted-foreground">
-              {state.order.length === 0
-                ? 'Waiting for webhooks...'
-                : `${state.order.length} webhook(s) received`}
+              {`${state.order.length} webhook(s) received`}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -127,6 +126,9 @@ function App() {
         </div>
 
         <Table>
+          <TableCaption>
+            {state.order.length === 0 && 'Waiting for webhooks...'}
+          </TableCaption>
           <TableHeader>
             <TableRow className="border-b-muted">
               <TableHead className="text-center text-md font-semibold">

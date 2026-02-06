@@ -9,6 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
+import { CopyButton } from '@/components/copy-button'
 import { API_URL } from '@/lib/constants'
 import type { WebhookData, WebhookState } from '@/lib/types'
 
@@ -145,13 +146,14 @@ export function Dashboard() {
                   <TableCell className="text-md text-center">
                     {item.bot_name}
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="text-center flex items-center justify-center gap-2">
                     <Button
                       className="rounded-md cursor-pointer"
                       onClick={() => handleClick(item)}
                     >
                       Open Link
                     </Button>
+                    <CopyButton link={item.link} />
                   </TableCell>
                   <TableCell className="text-md text-center">
                     {item.click_count}

@@ -146,13 +146,22 @@ function App() {
             {state.order.map((id) => {
               const item = state.items[id]
               return (
-                <TableRow key={id}>
-                  <TableCell className="text-md">{item.bot_name}</TableCell>
-                  <TableCell>
-                    <Button onClick={() => handleClick(item)}>Open Link</Button>
+                <TableRow key={id} className="text-foreground">
+                  <TableCell className="text-md text-center">
+                    {item.bot_name}
                   </TableCell>
-                  <TableCell className="text-md">{item.click_count}</TableCell>
-                  <TableCell className="text-md">
+                  <TableCell className="text-center">
+                    <Button
+                      className="rounded-md cursor-pointer"
+                      onClick={() => handleClick(item)}
+                    >
+                      Open Link
+                    </Button>
+                  </TableCell>
+                  <TableCell className="text-md text-center">
+                    {item.click_count}
+                  </TableCell>
+                  <TableCell className="text-md text-center">
                     {formatTime(item.timestamp)}
                   </TableCell>
                 </TableRow>

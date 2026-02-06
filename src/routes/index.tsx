@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -101,10 +100,17 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col items-center py-6 px-4 bg-background">
       <div className="w-full max-w-4xl">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">
-            Queue-it Webhooks
-          </h1>
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">
+              Queue-it Webhooks
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {state.order.length === 0
+                ? 'Waiting for webhooks...'
+                : `${state.order.length} webhook(s) received`}
+            </p>
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="relative flex size-2">
               <span
@@ -121,11 +127,6 @@ function App() {
         </div>
 
         <Table>
-          <TableCaption>
-            {state.order.length === 0
-              ? 'Waiting for webhooks...'
-              : `${state.order.length} webhook(s) received`}
-          </TableCaption>
           <TableHeader>
             <TableRow className="border-b-muted">
               <TableHead className="text-center text-md font-semibold">

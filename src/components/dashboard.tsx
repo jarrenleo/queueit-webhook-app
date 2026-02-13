@@ -1,31 +1,65 @@
-import { useEffect, useState } from 'react'
-import {
-  Table,
-  TableCaption,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { useEffect, useState, useRef, useCallback, memo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/copy-button'
 import { API_URL } from '@/lib/constants'
 import type { WebhookData, WebhookState } from '@/lib/types'
 
+const ROW_HEIGHT = 49 // Estimated row height in px
+const OVERSCAN = 20 // Extra rows rendered above/below viewport
+
+function formatTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString()
+}
+
+// Memoized row — only re-renders when its specific item or callback changes
+const WebhookRow = memo(function WebhookRow({
+  item,
+  onClickItem,
+}: {
+  item: WebhookData
+  onClickItem: (item: WebhookData) => void
+}) {
+  return (
+    <tr className="hover:bg-muted/50 border-b border-b-muted transition-colors text-foreground">
+      <td className="p-2 align-middle whitespace-nowrap text-md text-center">
+        {item.bot_name}
+      </td>
+      <td className="p-2 align-middle whitespace-nowrap text-center">
+        <div className="flex items-center justify-center gap-2">
+          <Button
+            className="rounded-md cursor-pointer"
+            onClick={() => onClickItem(item)}
+          >
+            Open Link
+          </Button>
+          <CopyButton link={item.link} />
+        </div>
+      </td>
+      <td className="p-2 align-middle whitespace-nowrap text-md text-center">
+        {item.click_count}
+      </td>
+      <td className="p-2 align-middle whitespace-nowrap text-md text-center">
+        {formatTime(item.timestamp)}
+      </td>
+    </tr>
+  )
+})
+
 export function Dashboard() {
   const [state, setState] = useState<WebhookState>({ items: {}, order: [] })
   const [isConnected, setIsConnected] = useState(false)
-  const pin = sessionStorage.getItem('pin') ?? ''
+  // Read pin once on mount — avoids re-reading sessionStorage every render
+  const [pin] = useState(() => sessionStorage.getItem('pin') ?? '')
 
-  // Fetch initial data and setup SSE
+  // --- Fetch initial data + SSE setup ---
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`${API_URL}/data`, {
+        const response = await fetch(`${API_URL}/data`, {
           headers: { 'x-access-pin': pin },
         })
-        const data: WebhookData[] = await res.json()
+        const data: WebhookData[] = await response.json()
         setState({
           items: Object.fromEntries(data.map((item) => [item.id, item])),
           order: data.map((item) => item.id),
@@ -37,18 +71,16 @@ export function Dashboard() {
 
     fetchData()
 
-    // Setup SSE connection (EventSource doesn't support headers, use query param)
     const eventSource = new EventSource(
       `${API_URL}/sse?pin=${encodeURIComponent(pin)}`,
     )
 
     eventSource.onopen = () => setIsConnected(true)
     eventSource.onerror = () => {
-      // Only show disconnected if connection is fully closed (not just reconnecting)
       if (eventSource.readyState === EventSource.CLOSED) setIsConnected(false)
     }
 
-    // Handle new webhook data - O(1)
+    // Handle new webhook data — O(1)
     eventSource.addEventListener('new_data', (e) => {
       const newItem: WebhookData = JSON.parse(e.data)
       setState((prev) => ({
@@ -57,7 +89,7 @@ export function Dashboard() {
       }))
     })
 
-    // Handle click updates - O(1)
+    // Handle click updates — O(1)
     eventSource.addEventListener('click_update', (e) => {
       const { data: updatedItem } = JSON.parse(e.data)
       setState((prev) => ({
@@ -76,25 +108,41 @@ export function Dashboard() {
     })
 
     return () => eventSource.close()
-  }, [])
+  }, [pin])
 
-  // Handle row click - increment count and open link
-  async function handleClick(item: WebhookData) {
-    window.open(item.link, '_blank')
-    await fetch(`${API_URL}/click/${item.id}`, {
-      method: 'POST',
-      headers: { 'x-access-pin': pin },
-    })
-  }
+  // --- Virtualization ---
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  function formatTime(timestamp: number) {
-    return new Date(timestamp).toLocaleTimeString()
-  }
+  const virtualizer = useVirtualizer({
+    count: state.order.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: OVERSCAN,
+  })
+
+  const virtualItems = virtualizer.getVirtualItems()
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0
+  const paddingBottom =
+    virtualItems.length > 0
+      ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+      : 0
+
+  // Stable callback — won't change across renders so memoized rows stay put
+  const handleClick = useCallback(
+    async (item: WebhookData) => {
+      window.open(item.link, '_blank')
+      await fetch(`${API_URL}/click/${item.id}`, {
+        method: 'POST',
+        headers: { 'x-access-pin': pin },
+      })
+    },
+    [pin],
+  )
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-6 px-4 bg-background">
-      <div className="w-full max-w-4xl">
-        <div className="flex items-end justify-between mb-6">
+    <div className="h-screen flex flex-col items-center py-6 px-4 bg-background">
+      <div className="w-full max-w-4xl flex flex-col flex-1 min-h-0">
+        <div className="flex items-end justify-between mb-6 shrink-0">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
               Queue-it Webhooks
@@ -118,54 +166,59 @@ export function Dashboard() {
           </div>
         </div>
 
-        <Table>
-          <TableCaption>
-            {state.order.length === 0 && 'Waiting for webhooks...'}
-          </TableCaption>
-          <TableHeader>
-            <TableRow className="border-b-muted">
-              <TableHead className="text-center text-md font-semibold">
-                Bot
-              </TableHead>
-              <TableHead className="text-center text-md font-semibold">
-                Link
-              </TableHead>
-              <TableHead className="text-center text-md font-semibold">
-                Clicks
-              </TableHead>
-              <TableHead className="text-center text-md font-semibold">
-                Timestamp
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {state.order.map((id) => {
-              const item = state.items[id]
-              return (
-                <TableRow key={id} className="text-foreground">
-                  <TableCell className="text-md text-center">
-                    {item.bot_name}
-                  </TableCell>
-                  <TableCell className="text-center flex items-center justify-center gap-2">
-                    <Button
-                      className="rounded-md cursor-pointer"
-                      onClick={() => handleClick(item)}
-                    >
-                      Open Link
-                    </Button>
-                    <CopyButton link={item.link} />
-                  </TableCell>
-                  <TableCell className="text-md text-center">
-                    {item.click_count}
-                  </TableCell>
-                  <TableCell className="text-md text-center">
-                    {formatTime(item.timestamp)}
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-auto min-h-0 rounded-md border border-muted"
+        >
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-background z-10">
+              <tr className="border-b border-b-muted">
+                <th className="text-foreground h-10 px-2 text-center text-md font-semibold whitespace-nowrap">
+                  Bot
+                </th>
+                <th className="text-foreground h-10 px-2 text-center text-md font-semibold whitespace-nowrap">
+                  Link
+                </th>
+                <th className="text-foreground h-10 px-2 text-center text-md font-semibold whitespace-nowrap">
+                  Clicks
+                </th>
+                <th className="text-foreground h-10 px-2 text-center text-md font-semibold whitespace-nowrap">
+                  Timestamp
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.order.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="text-center text-muted-foreground py-6 text-sm"
+                  >
+                    Waiting for webhooks...
+                  </td>
+                </tr>
+              )}
+              {paddingTop > 0 && (
+                <tr>
+                  <td style={{ height: paddingTop, padding: 0 }} />
+                </tr>
+              )}
+              {virtualItems.map((virtualRow) => {
+                const id = state.order[virtualRow.index]
+                const item = state.items[id]
+                if (!item) return null
+                return (
+                  <WebhookRow key={id} item={item} onClickItem={handleClick} />
+                )
+              })}
+              {paddingBottom > 0 && (
+                <tr>
+                  <td style={{ height: paddingBottom, padding: 0 }} />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
